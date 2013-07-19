@@ -26,7 +26,15 @@ type Conn struct {
 	//PingInterval int
 	msgOut       chan Command
 	conn         net.Conn
-	expects      chan map[int]Expect
+	expects      chan map[int]Expectation
+}
+
+func (c Conn) Expects() chan map[int]Expectation {
+	return c.expects
+}
+
+func (c Conn) MsgOut() chan Command {
+	return c.msgOut
 }
 
 type IRCErr string
@@ -43,18 +51,20 @@ func DialIRC(host string, port int, nicks []string, name, realname string/*, pin
 		return nil, err
 	}
 	ircConn.conn = conn
+	log.Printf("Connected! Performing setup...")
 
 	// create expects map and the default expect
-	expects := map[int]Expect{}
+	expects := map[int]Expectation{}
 
 	// create mutex so goroutines play nice
-	ircConn.expects = make(chan map[int]Expect, 1)
+	ircConn.expects = make(chan map[int]Expectation, 1)
 	ircConn.expects <- expects
 
 	ircConn.msgOut = make(chan Command, 16)
 
 	go ircConn.recvCommands()
-	go ircConn.handleExpects()
+	go handleExpects(ircConn)
+	go ircConn.pongsGalore()
 
 	return &ircConn, nil
 }
@@ -90,8 +100,12 @@ func (c Conn) recvCommands() {
 	log.Printf("Starting message reciever")
 	buffered := bufio.NewReader(c.conn)
 	for {
-		msg, _ := c.recvCommand(buffered)
-		c.msgOut <- *msg
+		msg, err := c.recvCommand(buffered)
+		if err != nil {
+			log.Fatal(err)
+		} else {
+			c.msgOut <- *msg
+		}
 	}
 }
 
@@ -104,11 +118,11 @@ func (c Conn) Send(m Command) error {
 }
 
 func (c Conn) pongsGalore() {
-	pong := Command{Prefix: "", Command: Pong, Params: []string{c.Nick, c.Host}}
-	pings, _ := c.Expect(Command{Command: Ping})
+	pong := Command{Prefix: "", Command: Pong}
+	pings, _ := Expect(c,Command{Command: Ping})
 	for {
 		ping := <-pings.Chan
-		pong.Params = []string{c.Nick, ping.Params[0]}
+		pong.Params = []string{ping.Params[0]}
 		c.sendCommand(pong)
 	}
 }
@@ -131,10 +145,10 @@ func (c *Conn) Register() (Command, error) {
 	log.Printf("Attempting to register nick")
 	userMsg := Command{Command: User,
 		Params: []string{c.Name, "0", "*", c.RealName}}
-	welcomeChan, _ := c.Expect(Command{Command: RplWelcome})
-	errChan, _ := c.Expect(Command{Command: ErrNicknameinuse})
-	defer c.UnExpect(welcomeChan)
-	defer c.UnExpect(welcomeChan)
+	welcomeChan, _ := Expect(c,Command{Command: RplWelcome})
+	errChan, _ := Expect(c,Command{Command: ErrNicknameinuse})
+	defer UnExpect(c,welcomeChan)
+	defer UnExpect(c,welcomeChan)
 
 	c.sendCommand(userMsg)
 
@@ -163,7 +177,6 @@ func (c *Conn) Register() (Command, error) {
 			c.Nick = v
 			// Don't really need pings
 			// go c.pingsGalore()
-			go c.pongsGalore()
 			break
 		}
 	}

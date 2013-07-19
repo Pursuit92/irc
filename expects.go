@@ -15,16 +15,21 @@ type ExpectChan struct {
 	Chan chan Command
 }
 
-type Expect struct {
+type Expectation struct {
 	CommandMatcher
 	ExpectChan
 }
 
+type Expectable interface {
+	Expects() chan map[int]Expectation
+	MsgOut() chan Command
+}
+
 // Register a channel to receive messages of a certain type
-func (irc Conn) Expect(cr Command) (ExpectChan, error) {
+func Expect(irc Expectable,cr Command) (ExpectChan, error) {
 	var exists bool
 	var i int
-	var match Expect
+	var match Expectation
 	var err error
 	match.Params = make([]*regexp.Regexp, len(cr.Params))
 	if len(cr.Prefix) == 0 {
@@ -49,7 +54,8 @@ func (irc Conn) Expect(cr Command) (ExpectChan, error) {
 			return ExpectChan{}, err
 		}
 	}
-	expects := <-irc.expects
+	eChan := irc.Expects()
+	expects := <-eChan
 	exists = true
 	for exists {
 		i = rgen.Intn(65534)
@@ -59,28 +65,31 @@ func (irc Conn) Expect(cr Command) (ExpectChan, error) {
 	match.Chan = c
 	match.id = i
 	expects[i] = match
-	irc.expects <- expects
+	eChan <- expects
 	return ExpectChan{i, c}, nil
 }
 
-func (irc Conn) UnExpect(e ExpectChan) error {
-	expects := <-irc.expects
+func UnExpect(irc Expectable,e ExpectChan) error {
+	eChan := irc.Expects()
+	expects := <-eChan
 	_, exists := expects[e.id]
 	if !exists {
-		irc.expects <- expects
+		eChan <- expects
 		return IRCErr("Expect does not exist!")
 	}
 	delete(expects, e.id)
-	irc.expects <- expects
+	eChan <- expects
 	return nil
 }
 
-func (c Conn) handleExpects() {
+func handleExpects(c Expectable) {
 	log.Printf("Starting Expect handler")
+	msgOut := c.MsgOut()
+	eChan := c.Expects()
 	for {
-		msg := <-c.msgOut
+		msg := <-msgOut
 		//println("expect handler got message")
-		expects := <-c.expects
+		expects := <-eChan
 		for _, v := range expects {
 			if matchCommand(msg, v.CommandMatcher) {
 				log.Print("Sending message to Expect channel")
@@ -92,7 +101,7 @@ func (c Conn) handleExpects() {
 			log.Print("Sending message to default channel")
 			d.Chan <- msg
 		}
-		c.expects <- expects
+		eChan <- expects
 	}
 }
 
@@ -143,15 +152,16 @@ func compileCmdMatch(cr Command) (CommandMatcher, error) {
 	return match, nil
 }
 
-func (c Conn) DefaultExpect() ExpectChan {
-	var match Expect
+func DefaultExpect(c Expectable) ExpectChan {
+	var match Expectation
 
-	expects := <-c.expects
+	eChan := c.Expects()
+	expects := <-eChan
 	i := 65535
 	ch := make(chan Command)
 	match.Chan = ch
 	match.id = i
 	expects[i] = match
-	c.expects <- expects
+	eChan <- expects
 	return ExpectChan{i, ch}
 }
