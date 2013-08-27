@@ -25,8 +25,27 @@ type Expectable interface {
 	MsgOut() chan Command
 }
 
+type Expector struct {
+	msgs    chan Command
+	expects chan map[int]Expectation
+}
+
+func (e Expector) Expects() chan map[int]Expectation {
+	return e.expects
+}
+func (e Expector) MsgOut() chan Command {
+	return e.msgs
+}
+
+func MakeExpector(msgs chan Command) Expector {
+	eChan := make(chan map[int]Expectation, 1)
+	expects := map[int]Expectation{}
+	eChan <- expects
+	return Expector{msgs, eChan}
+}
+
 // Register a channel to receive messages of a certain type
-func Expect(irc Expectable,cr Command) (ExpectChan, error) {
+func Expect(irc Expectable, cr Command) (ExpectChan, error) {
 	var exists bool
 	var i int
 	var match Expectation
@@ -69,7 +88,7 @@ func Expect(irc Expectable,cr Command) (ExpectChan, error) {
 	return ExpectChan{i, c}, nil
 }
 
-func UnExpect(irc Expectable,e ExpectChan) error {
+func UnExpect(irc Expectable, e ExpectChan) error {
 	eChan := irc.Expects()
 	expects := <-eChan
 	_, exists := expects[e.id]

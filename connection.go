@@ -17,16 +17,16 @@ func init() {
 }
 
 type Conn struct {
-	Host         string
-	Port         int
-	Nicks        []string
-	Nick         string
-	Name         string
-	RealName     string
+	Host     string
+	Port     int
+	Nicks    []string
+	Nick     string
+	Name     string
+	RealName string
 	//PingInterval int
-	msgOut       chan Command
-	conn         net.Conn
-	expects      chan map[int]Expectation
+	msgOut  chan Command
+	conn    net.Conn
+	expects chan map[int]Expectation
 }
 
 func (c Conn) Expects() chan map[int]Expectation {
@@ -43,8 +43,8 @@ func (i IRCErr) Error() string {
 	return string(i)
 }
 
-func DialIRC(host string, port int, nicks []string, name, realname string/*, pingint int*/) (*Conn, error) {
-	ircConn := Conn{host, port, nicks, "", name, realname, /*pingint,*/ nil, nil, nil}
+func DialIRC(host string, port int, nicks []string, name, realname string /*, pingint int*/) (*Conn, error) {
+	ircConn := Conn{host, port, nicks, "", name, realname /*pingint,*/, nil, nil, nil}
 	log.Printf("Connecting to %s:%d...", host, port)
 	conn, err := net.Dial("tcp", host+":"+strconv.Itoa(port))
 	if err != nil {
@@ -119,13 +119,14 @@ func (c Conn) Send(m Command) error {
 
 func (c Conn) pongsGalore() {
 	pong := Command{Prefix: "", Command: Pong}
-	pings, _ := Expect(c,Command{Command: Ping})
+	pings, _ := Expect(c, Command{Command: Ping})
 	for {
 		ping := <-pings.Chan
 		pong.Params = []string{ping.Params[0]}
 		c.sendCommand(pong)
 	}
 }
+
 /*
 func (c Conn) pingsGalore() {
 	// This needs to be made fault-tolerant
@@ -145,10 +146,10 @@ func (c *Conn) Register() (Command, error) {
 	log.Printf("Attempting to register nick")
 	userMsg := Command{Command: User,
 		Params: []string{c.Name, "0", "*", c.RealName}}
-	welcomeChan, _ := Expect(c,Command{Command: RplWelcome})
-	errChan, _ := Expect(c,Command{Command: ErrNicknameinuse})
-	defer UnExpect(c,welcomeChan)
-	defer UnExpect(c,welcomeChan)
+	welcomeChan, _ := Expect(c, Command{Command: RplWelcome})
+	errChan, _ := Expect(c, Command{Command: ErrNicknameinuse})
+	defer UnExpect(c, welcomeChan)
+	defer UnExpect(c, welcomeChan)
 
 	c.sendCommand(userMsg)
 
