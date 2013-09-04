@@ -46,6 +46,7 @@ func MakeExpector(msgs chan Command) Expector {
 
 // Register a channel to receive messages of a certain type
 func Expect(irc Expectable, cr Command) (ExpectChan, error) {
+	log.Printf("Registering Expect for %s\n",cr.String())
 	var exists bool
 	var i int
 	var match Expectation
@@ -85,20 +86,22 @@ func Expect(irc Expectable, cr Command) (ExpectChan, error) {
 	match.id = i
 	expects[i] = match
 	eChan <- expects
+	log.Printf("Expect id: %d\n",i)
 	return ExpectChan{i, c}, nil
 }
 
-func UnExpect(irc Expectable, e ExpectChan) error {
+func UnExpect(irc Expectable, e ExpectChan) {
+	log.Printf("Removing expect with id %d",e.id)
 	eChan := irc.Expects()
 	expects := <-eChan
 	_, exists := expects[e.id]
 	if !exists {
 		eChan <- expects
-		return IRCErr("Expect does not exist!")
+		return
 	}
 	delete(expects, e.id)
 	eChan <- expects
-	return nil
+	return
 }
 
 func handleExpects(c Expectable) {
@@ -106,17 +109,20 @@ func handleExpects(c Expectable) {
 	msgOut := c.MsgOut()
 	eChan := c.Expects()
 	for {
+		sent := false
 		msg := <-msgOut
 		//println("expect handler got message")
 		expects := <-eChan
+		//log.Printf("Testing message: %s",msg.String())
 		for _, v := range expects {
 			if matchCommand(msg, v.CommandMatcher) {
-				log.Print("Sending message to Expect channel")
+				log.Printf("Sending message to Expect channel with id %d: %s",v.id,msg.String())
 				v.Chan <- msg
+				sent = true
 			}
 		}
 		d, ok := expects[65535]
-		if ok {
+		if ok && ! sent {
 			log.Print("Sending message to default channel")
 			d.Chan <- msg
 		}

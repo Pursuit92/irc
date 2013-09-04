@@ -6,7 +6,6 @@ import (
 	"log"
 	"math/rand"
 	"net"
-	"strconv"
 	"time"
 )
 
@@ -18,7 +17,6 @@ func init() {
 
 type Conn struct {
 	Host     string
-	Port     int
 	Nicks    []string
 	Nick     string
 	Name     string
@@ -43,10 +41,10 @@ func (i IRCErr) Error() string {
 	return string(i)
 }
 
-func DialIRC(host string, port int, nicks []string, name, realname string /*, pingint int*/) (*Conn, error) {
-	ircConn := Conn{host, port, nicks, "", name, realname /*pingint,*/, nil, nil, nil}
-	log.Printf("Connecting to %s:%d...", host, port)
-	conn, err := net.Dial("tcp", host+":"+strconv.Itoa(port))
+func DialIRC(host string, nicks []string, name, realname string /*, pingint int*/) (*Conn, error) {
+	ircConn := Conn{host, nicks, "", name, realname /*pingint,*/, nil, nil, nil}
+	log.Printf("Connecting to %s...", host)
+	conn, err := net.Dial("tcp", host)
 	if err != nil {
 		return nil, err
 	}
@@ -149,7 +147,7 @@ func (c *Conn) Register() (Command, error) {
 	welcomeChan, _ := Expect(c, Command{Command: RplWelcome})
 	errChan, _ := Expect(c, Command{Command: ErrNicknameinuse})
 	defer UnExpect(c, welcomeChan)
-	defer UnExpect(c, welcomeChan)
+	defer UnExpect(c, errChan)
 
 	c.sendCommand(userMsg)
 

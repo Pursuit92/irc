@@ -97,7 +97,7 @@ func (m Command) String() string {
 
 func (c Command) Message() Message {
 	n,u,h := splitFrom(c.Prefix)
-	return Message{n,u,h, c.Params[0], strings.Join(c.Params, " ")}
+	return Message{n,u,h, c.Params[0], strings.Join(c.Params[1:], " ")}
 }
 
 func splitFrom(from string) (nick,user,host string) {
