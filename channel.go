@@ -1,9 +1,9 @@
 package irc
 
 import (
-	"strings"
 	"fmt"
 	"regexp"
+	"strings"
 )
 
 type Channel struct {
@@ -17,8 +17,8 @@ func (c *Conn) Join(channel string) (*Channel, error) {
 	c.sendCommand(joinCmd)
 	msgs, _ := Expect(c, Command{"", "", []string{channel}})
 	chanstruct := &Channel{channel, c, MakeExpector(msgs.Chan)}
-	join,_ := Expect(chanstruct,Command{"","JOIN",[]string{}})
-	defer UnExpect(chanstruct,join)
+	join, _ := Expect(chanstruct, Command{"", "JOIN", []string{}})
+	defer UnExpect(chanstruct, join)
 	go handleExpects(chanstruct)
 	<-join.Chan
 	return chanstruct, nil
@@ -35,21 +35,21 @@ func parseWhoReply(cmd Command) IRCUser {
 	}
 	whoreplReg := regexp.MustCompile(`^(?P<name>[^ ]+) (?P<host>[^ ]+) (?P<server>[^ ]+) (?P<nick>[^ ]+) (?:[^ ]+ ){2}(?P<realname>.*)$`)
 	var user IRCUser
-	cmdStr := strings.Join(cmd.Params[2:]," ")
-	user.Nick = whoreplReg.ReplaceAllString(cmdStr,"${nick}")
-	user.Host = whoreplReg.ReplaceAllString(cmdStr,"${host}")
-	user.Server = whoreplReg.ReplaceAllString(cmdStr,"${server}")
-	user.Name = whoreplReg.ReplaceAllString(cmdStr,"${name}")
-	user.RealName = whoreplReg.ReplaceAllString(cmdStr,"${realname}")
+	cmdStr := strings.Join(cmd.Params[2:], " ")
+	user.Nick = whoreplReg.ReplaceAllString(cmdStr, "${nick}")
+	user.Host = whoreplReg.ReplaceAllString(cmdStr, "${host}")
+	user.Server = whoreplReg.ReplaceAllString(cmdStr, "${server}")
+	user.Name = whoreplReg.ReplaceAllString(cmdStr, "${name}")
+	user.RealName = whoreplReg.ReplaceAllString(cmdStr, "${realname}")
 	return user
 }
 
 func (c Channel) GetUsers() map[string]IRCUser {
 	users := make(map[string]IRCUser)
-	userMsgs,_ := Expect(c.conn,Command{"",RplWhoreply,[]string{}})
-	userEnd,_ := Expect(c.conn,Command{"",RplEndofwho,[]string{}})
-	defer UnExpect(c.conn,userMsgs)
-	defer UnExpect(c.conn,userEnd)
+	userMsgs, _ := Expect(c.conn, Command{"", RplWhoreply, []string{}})
+	userEnd, _ := Expect(c.conn, Command{"", RplEndofwho, []string{}})
+	defer UnExpect(c.conn, userMsgs)
+	defer UnExpect(c.conn, userEnd)
 	whoCmd := Command{Command: Who, Params: []string{c.Name}}
 	c.conn.sendCommand(whoCmd)
 	for {
@@ -64,4 +64,3 @@ func (c Channel) GetUsers() map[string]IRCUser {
 		}
 	}
 }
-

@@ -16,8 +16,7 @@ type Message struct {
 	Nick string
 	User string
 	Host string
-	To   string
-	Body string
+	Body []string
 }
 
 func parseCommand(message string) (*Command, error) {
@@ -96,18 +95,19 @@ func (m Command) String() string {
 }
 
 func (c Command) Message() Message {
-	n,u,h := splitFrom(c.Prefix)
-	return Message{n,u,h, c.Params[0], strings.Join(c.Params[1:], " ")}
+	n, u, h := splitFrom(c.Prefix)
+	return Message{n, u, h, c.Params}
 }
 
-func splitFrom(from string) (nick,user,host string) {
+func splitFrom(from string) (nick, user, host string) {
 	var i int
 	var j int
-	for i = 0; from[i] != '!'; i++ {}
+	for i = 0; from[i] != '!'; i++ {
+	}
 	nick = from[:i]
-	for j = i+1; from[j] != '@'; j++ {}
-	user = from[i+1:j]
+	for j = i + 1; from[j] != '@'; j++ {
+	}
+	user = from[i+1 : j]
 	host = from[j+1:]
 	return
 }
-
