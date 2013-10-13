@@ -3,7 +3,7 @@ package irc
 import (
 	"bufio"
 	"fmt"
-	"log"
+	"github.com/Pursuit92/LeveledLogger/log"
 	"math/rand"
 	"net"
 	"time"
@@ -43,13 +43,13 @@ func (i IRCErr) Error() string {
 
 func DialIRC(host string, nicks []string, name, realname string /*, pingint int*/) (*Conn, error) {
 	ircConn := Conn{host, nicks, "", name, realname /*pingint,*/, nil, nil, nil}
-	log.Printf("Connecting to %s...", host)
+	log.Out.Printf(2,"Connecting to %s...", host)
 	conn, err := net.Dial("tcp", host)
 	if err != nil {
 		return nil, err
 	}
 	ircConn.conn = conn
-	log.Printf("Connected! Performing setup...")
+	log.Out.Printf(2,"Connected! Performing setup...")
 
 	// create expects map and the default expect
 	expects := map[int]Expectation{}
@@ -69,7 +69,7 @@ func DialIRC(host string, nicks []string, name, realname string /*, pingint int*
 
 func (c Conn) sendCommand(m Command) error {
 	msg := m.String()
-	log.Printf("Sending Command: %s", msg)
+	log.Out.Printf(2,"Sending Command: %s", msg)
 	_, err := fmt.Fprintf(c.conn, "%s\r\n", msg)
 
 	if err == nil {
@@ -95,7 +95,7 @@ func (c Conn) recvCommand(buffered *bufio.Reader) (*Command, error) {
 
 // Needs error handling
 func (c Conn) recvCommands() {
-	log.Printf("Starting message reciever")
+	log.Out.Printf(2,"Starting message reciever")
 	buffered := bufio.NewReader(c.conn)
 	for {
 		msg, err := c.recvCommand(buffered)
@@ -141,7 +141,7 @@ func (c Conn) pingsGalore() {
 */
 
 func (c *Conn) Register() (Command, error) {
-	log.Printf("Attempting to register nick")
+	log.Out.Printf(2,"Attempting to register nick")
 	userMsg := Command{Command: User,
 		Params: []string{c.Name, "0", "*", c.RealName}}
 	welcomeChan, _ := Expect(c, Command{Command: RplWelcome})
@@ -161,18 +161,18 @@ func (c *Conn) Register() (Command, error) {
 	for _, v := range c.Nicks {
 		nickMsg.Params = []string{v}
 		c.sendCommand(nickMsg)
-		log.Printf("Waiting for response...")
+		log.Out.Printf(2,"Waiting for response...")
 		select {
 		case resp := <-welcomeChan.Chan:
-			log.Printf("Received welcome message: %s", resp.String())
+			log.Out.Printf(2,"Received welcome message: %s", resp.String())
 			//println(resp.String())
 			ret = resp
 			success = true
 		case errmsg := <-errChan.Chan:
-			log.Printf("Received error message: %s", errmsg.String())
+			log.Out.Printf(2,"Received error message: %s", errmsg.String())
 		}
 		if success {
-			log.Printf("Done registering")
+			log.Out.Printf(2,"Done registering")
 			c.Nick = v
 			// Don't really need pings
 			// go c.pingsGalore()

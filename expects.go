@@ -1,7 +1,7 @@
 package irc
 
 import (
-	"log"
+	"github.com/Pursuit92/LeveledLogger/log"
 	"regexp"
 )
 
@@ -46,7 +46,7 @@ func MakeExpector(msgs chan Command) Expector {
 
 // Register a channel to receive messages of a certain type
 func Expect(irc Expectable, cr Command) (ExpectChan, error) {
-	log.Printf("Registering Expect for %s\n", cr.String())
+	log.Out.Printf(3,"Registering Expect for %s\n", cr.String())
 	var exists bool
 	var i int
 	var match Expectation
@@ -86,12 +86,12 @@ func Expect(irc Expectable, cr Command) (ExpectChan, error) {
 	match.id = i
 	expects[i] = match
 	eChan <- expects
-	log.Printf("Expect id: %d\n", i)
+	log.Out.Printf(3,"Expect id: %d\n", i)
 	return ExpectChan{i, c}, nil
 }
 
 func UnExpect(irc Expectable, e ExpectChan) {
-	log.Printf("Removing expect with id %d", e.id)
+	log.Out.Printf(3,"Removing expect with id %d", e.id)
 	eChan := irc.Expects()
 	expects := <-eChan
 	_, exists := expects[e.id]
@@ -105,7 +105,7 @@ func UnExpect(irc Expectable, e ExpectChan) {
 }
 
 func handleExpects(c Expectable) {
-	log.Printf("Starting Expect handler")
+	log.Out.Printf(3,"Starting Expect handler")
 	msgOut := c.MsgOut()
 	eChan := c.Expects()
 	for {
@@ -113,17 +113,17 @@ func handleExpects(c Expectable) {
 		msg := <-msgOut
 		//println("expect handler got message")
 		expects := <-eChan
-		//log.Printf("Testing message: %s",msg.String())
+		//log.Out.Printf("Testing message: %s",msg.String())
 		for _, v := range expects {
 			if matchCommand(msg, v.CommandMatcher) {
-				log.Printf("Sending message to Expect channel with id %d: %s", v.id, msg.String())
+				log.Out.Printf(3,"Sending message to Expect channel with id %d: %s", v.id, msg.String())
 				v.Chan <- msg
 				sent = true
 			}
 		}
 		d, ok := expects[65535]
 		if ok && !sent {
-			log.Print("Sending message to default channel")
+			log.Out.Print(3,"Sending message to default channel")
 			d.Chan <- msg
 		}
 		eChan <- expects
