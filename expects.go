@@ -37,6 +37,7 @@ func (e Expector) MsgOut() chan Command {
 	return e.msgs
 }
 
+// Turns a channel into an Expector
 func MakeExpector(msgs chan Command) Expector {
 	eChan := make(chan map[int]Expectation, 1)
 	expects := map[int]Expectation{}
@@ -44,7 +45,7 @@ func MakeExpector(msgs chan Command) Expector {
 	return Expector{msgs, eChan}
 }
 
-// Register a channel to receive messages of a certain type
+// Register a channel to receive messages matching a specific pattern
 func Expect(irc Expectable, cr Command) (ExpectChan, error) {
 	log.Out.Printf(3,"Registering Expect for %s\n", cr.String())
 	var exists bool

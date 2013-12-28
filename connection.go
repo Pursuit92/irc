@@ -1,5 +1,7 @@
 package irc
 
+// BUG(josh) Need to replace the wonky chan map[] hack with real writelocks
+
 import (
 	"bufio"
 	"fmt"
@@ -188,4 +190,5 @@ func (c *Conn) Register() (Command, error) {
 func (c Conn) Quit() {
 	msg := Command{Command: Quit, Params: []string{"Leaving"}}
 	c.sendCommand(msg)
+	c.conn.Close()
 }
