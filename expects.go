@@ -2,6 +2,7 @@ package irc
 
 import (
 	"github.com/Pursuit92/LeveledLogger/log"
+	"github.com/Pursuit92/syncmap"
 	"regexp"
 )
 
@@ -21,16 +22,16 @@ type Expectation struct {
 }
 
 type Expectable interface {
-	Expects() chan map[int]Expectation
+	Expects() syncmap.Map
 	MsgOut() chan Command
 }
 
 type Expector struct {
 	msgs    chan Command
-	expects chan map[int]Expectation
+	expects syncmap.Map
 }
 
-func (e Expector) Expects() chan map[int]Expectation {
+func (e Expector) Expects() syncmap.Map {
 	return e.expects
 }
 func (e Expector) MsgOut() chan Command {
@@ -39,10 +40,8 @@ func (e Expector) MsgOut() chan Command {
 
 // Turns a channel into an Expector
 func MakeExpector(msgs chan Command) Expector {
-	eChan := make(chan map[int]Expectation, 1)
-	expects := map[int]Expectation{}
-	eChan <- expects
-	return Expector{msgs, eChan}
+	eMap := syncmap.New()
+	return Expector{msgs, eMap}
 }
 
 // Register a channel to receive messages matching a specific pattern
@@ -75,59 +74,49 @@ func Expect(irc Expectable, cr Command) (ExpectChan, error) {
 			return ExpectChan{}, err
 		}
 	}
-	eChan := irc.Expects()
-	expects := <-eChan
+	eMap := irc.Expects()
 	exists = true
 	for exists {
 		i = rgen.Intn(65534)
-		_, exists = expects[i]
+		_, exists = eMap.Get(i)
 	}
 	c := make(chan Command)
 	match.Chan = c
 	match.id = i
-	expects[i] = match
-	eChan <- expects
+	eMap.Set(i,match)
 	log.Out.Printf(3,"Expect id: %d\n", i)
 	return ExpectChan{i, c}, nil
 }
 
 func UnExpect(irc Expectable, e ExpectChan) {
 	log.Out.Printf(3,"Removing expect with id %d", e.id)
-	eChan := irc.Expects()
-	expects := <-eChan
-	_, exists := expects[e.id]
-	if !exists {
-		eChan <- expects
-		return
-	}
-	delete(expects, e.id)
-	eChan <- expects
-	return
+	eMap := irc.Expects()
+	eMap.Delete(e.id)
 }
 
 func handleExpects(c Expectable) {
 	log.Out.Printf(3,"Starting Expect handler")
 	msgOut := c.MsgOut()
-	eChan := c.Expects()
+	eMap := c.Expects()
 	for {
 		sent := false
 		msg := <-msgOut
 		//println("expect handler got message")
-		expects := <-eChan
 		//log.Out.Printf("Testing message: %s",msg.String())
-		for _, v := range expects {
-			if matchCommand(msg, v.CommandMatcher) {
-				log.Out.Printf(3,"Sending message to Expect channel with id %d: %s", v.id, msg.String())
-				v.Chan <- msg
+		for _, v := range eMap.Map() {
+			w := v.(Expectation)
+			if matchCommand(msg, w.CommandMatcher) {
+				log.Out.Printf(3,"Sending message to Expect channel with id %d: %s", w.id, msg.String())
+				w.Chan <- msg
 				sent = true
 			}
 		}
-		d, ok := expects[65535]
+		def, ok := eMap.Get(65535)
 		if ok && !sent {
+			d := def.(Expectation)
 			log.Out.Print(3,"Sending message to default channel")
 			d.Chan <- msg
 		}
-		eChan <- expects
 	}
 }
 
@@ -181,13 +170,11 @@ func compileCmdMatch(cr Command) (CommandMatcher, error) {
 func DefaultExpect(c Expectable) ExpectChan {
 	var match Expectation
 
-	eChan := c.Expects()
-	expects := <-eChan
+	eMap := c.Expects()
 	i := 65535
 	ch := make(chan Command)
 	match.Chan = ch
 	match.id = i
-	expects[i] = match
-	eChan <- expects
+	eMap.Set(i,match)
 	return ExpectChan{i, ch}
 }

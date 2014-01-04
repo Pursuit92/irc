@@ -6,6 +6,7 @@ import (
 	"bufio"
 	"fmt"
 	"github.com/Pursuit92/LeveledLogger/log"
+	"github.com/Pursuit92/syncmap"
 	"math/rand"
 	"net"
 	"time"
@@ -26,10 +27,10 @@ type Conn struct {
 	//PingInterval int
 	msgOut  chan Command
 	conn    net.Conn
-	expects chan map[int]Expectation
+	expects syncmap.Map
 }
 
-func (c Conn) Expects() chan map[int]Expectation {
+func (c Conn) Expects() syncmap.Map {
 	return c.expects
 }
 
@@ -44,7 +45,14 @@ func (i IRCErr) Error() string {
 }
 
 func DialIRC(host string, nicks []string, name, realname string /*, pingint int*/) (*Conn, error) {
-	ircConn := Conn{host, nicks, "", name, realname /*pingint,*/, nil, nil, nil}
+	ircConn := Conn{
+		Host: host,
+		Nicks: nicks,
+		Nick: "",
+		Name: name,
+		RealName: realname,
+		expects: syncmap.New(),
+	}
 	log.Out.Printf(2,"Connecting to %s...", host)
 	conn, err := net.Dial("tcp", host)
 	if err != nil {
@@ -52,13 +60,6 @@ func DialIRC(host string, nicks []string, name, realname string /*, pingint int*
 	}
 	ircConn.conn = conn
 	log.Out.Printf(2,"Connected! Performing setup...")
-
-	// create expects map and the default expect
-	expects := map[int]Expectation{}
-
-	// create mutex so goroutines play nice
-	ircConn.expects = make(chan map[int]Expectation, 1)
-	ircConn.expects <- expects
 
 	ircConn.msgOut = make(chan Command, 16)
 
