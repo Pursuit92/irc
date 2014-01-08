@@ -63,7 +63,7 @@ func (i IRCErr) Error() string {
 	return string(i)
 }
 
-func DialIRC(host string, nicks []string, name, realname string /*, pingint int*/) (*Conn, error) {
+func DialIRC(host string, nicks []string, name, realname string) (*Conn, error) {
 	ircConn := Conn{
 		Host: host,
 		Nicks: nicks,
@@ -116,13 +116,13 @@ func (c Conn) recvCommand(buffered *bufio.Reader) (*Command, error) {
 }
 
 // Needs error handling
-func (c Conn) recvCommands() {
+func (c Conn) recvCommands() error {
 	log.Out.Printf(2,"Starting message reciever")
 	buffered := bufio.NewReader(c.conn)
 	for {
 		msg, err := c.recvCommand(buffered)
 		if err != nil {
-			log.Fatal(err)
+			return err
 		} else {
 			c.msgOut <- *msg
 		}
@@ -140,27 +140,11 @@ func (c Conn) Send(m Command) error {
 func (c Conn) pongsGalore() {
 	pong := Command{Prefix: "", Command: Pong}
 	pings, _ := Expect(c, Command{Command: Ping})
-	for {
-		ping := <-pings.Chan
+	for ping := range pings.Chan {
 		pong.Params = []string{ping.Params[0]}
 		c.sendCommand(pong)
 	}
 }
-
-/*
-func (c Conn) pingsGalore() {
-	// This needs to be made fault-tolerant
-	ping := Command{Prefix: "", Command: Ping, Params: []string{c.Host}}
-
-	pongs, _ := c.Expect(Command{Command: Pong})
-	for {
-		c.sendCommand(ping)
-		repl :=  <-pongs.Chan
-		fmt.Println(repl.String())
-		time.Sleep(time.Duration(c.PingInterval) * time.Second)
-	}
-}
-*/
 
 func (c *Conn) Register() (Command, error) {
 	log.Out.Printf(2,"Attempting to register nick")

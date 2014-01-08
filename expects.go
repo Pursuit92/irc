@@ -117,9 +117,8 @@ func handleExpects(c Expectable) {
 	log.Out.Printf(3,"Starting Expect handler")
 	msgOut := c.MsgOut()
 	eMap := c.Expects()
-	for {
+	for msg := range msgOut {
 		sent := false
-		msg := <-msgOut
 		//println("expect handler got message")
 		//log.Out.Printf("Testing message: %s",msg.String())
 		for _, v := range eMap.Map() {

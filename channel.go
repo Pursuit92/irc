@@ -71,6 +71,7 @@ func (c Channel) GetUsers() map[string]IRCUser {
 	defer UnExpect(c.conn, userEnd)
 	whoCmd := Command{Command: Who, Params: []string{c.Name}}
 	c.conn.sendCommand(whoCmd)
+	// BUG(Josh) What if stuff happens before the userEnd Chan talks?
 	for {
 		select {
 		case msg := <-userMsgs.Chan:
@@ -79,6 +80,8 @@ func (c Channel) GetUsers() map[string]IRCUser {
 				users[user.Nick] = user
 			}
 		case <-userEnd.Chan:
+			UnExpect(c.conn,userMsgs)
+			UnExpect(c.conn,userEnd)
 			return users
 		}
 	}
