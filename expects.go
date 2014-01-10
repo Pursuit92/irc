@@ -44,7 +44,7 @@ type Expectation struct {
 type Expectable interface {
 	// Map of ints to Expectations
 	Expects() syncmap.Map
-	MsgOut() chan Command
+	RecvCommand() (*Command, error)
 }
 
 type Expector struct {
@@ -56,8 +56,10 @@ type Expector struct {
 func (e Expector) Expects() syncmap.Map {
 	return e.expects
 }
-func (e Expector) MsgOut() chan Command {
-	return e.msgs
+
+func (e Expector) RecvCommand() (*Command, error) {
+	cmd := <-e.msgs
+	return &cmd, nil
 }
 
 // Turns a channel into an Expector
@@ -122,9 +124,9 @@ func UnExpect(irc Expectable, e ExpectChan) {
 
 func handleExpects(c Expectable) {
 	log.Out.Printf(3,"Starting Expect handler")
-	msgOut := c.MsgOut()
 	eMap := c.Expects()
-	for msg := range msgOut {
+	msg, err := c.RecvCommand()
+	for err == nil {
 		sent := false
 		//println("expect handler got message")
 		//log.Out.Printf("Testing message: %s",msg.String())
@@ -132,7 +134,7 @@ func handleExpects(c Expectable) {
 			w := v.(Expectation)
 			if matchCommand(msg, w.CommandMatcher) {
 				log.Out.Printf(3,"Sending message to Expect channel with id %d: %s", w.id, msg.String())
-				w.Chan <- msg
+				w.Chan <- *msg
 				sent = true
 			}
 		}
@@ -140,12 +142,13 @@ func handleExpects(c Expectable) {
 		if ok && !sent {
 			d := def.(Expectation)
 			log.Out.Print(3,"Sending message to default channel")
-			d.Chan <- msg
+			d.Chan <- *msg
 		}
+		msg, err = c.RecvCommand()
 	}
 }
 
-func matchCommand(com Command, mat CommandMatcher) bool {
+func matchCommand(com *Command, mat CommandMatcher) bool {
 	if len(com.Params) < len(mat.Params) {
 		return false
 	}

@@ -42,17 +42,13 @@ type Conn struct {
 	Name     string
 	RealName string
 	//PingInterval int
-	msgOut  chan Command
 	conn    net.Conn
+	bufRead *bufio.Reader
 	expects syncmap.Map
 }
 
 func (c Conn) Expects() syncmap.Map {
 	return c.expects
-}
-
-func (c Conn) MsgOut() chan Command {
-	return c.msgOut
 }
 
 type IRCErr string
@@ -78,9 +74,7 @@ func DialIRC(host string, nicks []string, name, realname string) (*Conn, error) 
 	ircConn.conn = conn
 	log.Out.Printf(2,"Connected! Performing setup...")
 
-	ircConn.msgOut = make(chan Command, 16)
-
-	go ircConn.recvCommands()
+	ircConn.bufRead = bufio.NewReader(conn)
 	go handleExpects(ircConn)
 	go ircConn.pongsGalore()
 
@@ -100,29 +94,12 @@ func (c Conn) Send(m Command) error {
 }
 
 // receive a single command
-func (c Conn) recvCommand(buffered *bufio.Reader) (cmd *Command, err error) {
-	message, err := buffered.ReadString(0x0a)
+func (c Conn) RecvCommand() (cmd *Command, err error) {
+	message, err := c.bufRead.ReadString(0x0a)
 	if err == nil {
 		cmd, err = parseCommand(message)
 	}
 	return cmd, err
-}
-
-// Sends commands to the msgOut channel till an error is encountered
-func (c Conn) recvCommands() (err error) {
-	// This is the only thing that should be writing to the channel.
-	// Close it when we're done.
-	defer close(c.msgOut)
-
-	var cmd *Command
-	log.Out.Printf(2,"Starting message reciever")
-	buffered := bufio.NewReader(c.conn)
-	cmd, err = c.recvCommand(buffered)
-	for err == nil {
-		c.msgOut <- *cmd
-		cmd, err = c.recvCommand(buffered)
-	}
-	return err
 }
 
 // Watches for Pings and responds with Pongs. Pretty simple.
