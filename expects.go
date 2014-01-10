@@ -25,6 +25,7 @@ import (
 	"regexp"
 )
 
+// CommandMatcher mirrors the structure of a Command, but with regular expressions
 type CommandMatcher struct {
 	Prefix, Command *regexp.Regexp
 	Params          []*regexp.Regexp
@@ -41,12 +42,14 @@ type Expectation struct {
 }
 
 type Expectable interface {
+	// Map of ints to Expectations
 	Expects() syncmap.Map
 	MsgOut() chan Command
 }
 
 type Expector struct {
 	msgs    chan Command
+	// Map of ints to Expectations
 	expects syncmap.Map
 }
 
@@ -64,19 +67,18 @@ func MakeExpector(msgs chan Command) Expector {
 }
 
 // Register a channel to receive messages matching a specific pattern
-func Expect(irc Expectable, cr Command) (ExpectChan, error) {
+func Expect(irc Expectable, cr Command) (eChan ExpectChan, err error) {
 	log.Out.Printf(3,"Registering Expect for %s\n", cr.String())
 	var exists bool
 	var i int
 	var match Expectation
-	var err error
 	match.Params = make([]*regexp.Regexp, len(cr.Params))
 	if len(cr.Prefix) == 0 {
 		match.Prefix = regexp.MustCompile(`.*`)
 	} else {
 		match.Prefix, err = regexp.Compile(cr.Prefix)
 		if err != nil {
-			return ExpectChan{}, err
+			return eChan, err
 		}
 	}
 	if len(cr.Command) == 0 {
@@ -84,13 +86,17 @@ func Expect(irc Expectable, cr Command) (ExpectChan, error) {
 	} else {
 		match.Command, err = regexp.Compile(cr.Command)
 		if err != nil {
-			return ExpectChan{}, err
+			return eChan, err
 		}
 	}
 	for i, v := range cr.Params {
-		match.Params[i], err = regexp.Compile(v)
-		if err != nil {
-			return ExpectChan{}, err
+		if len(v) == 0 {
+			match.Params[i] = regexp.MustCompile(`.*`)
+		} else {
+			match.Params[i], err = regexp.Compile(v)
+			if err != nil {
+				return eChan, err
+			}
 		}
 	}
 	eMap := irc.Expects()
@@ -100,11 +106,12 @@ func Expect(irc Expectable, cr Command) (ExpectChan, error) {
 		_, exists = eMap.Get(i)
 	}
 	c := make(chan Command)
-	match.Chan = c
-	match.id = i
+	eChan.Chan = c
+	eChan.id = i
+	match.ExpectChan = eChan
 	eMap.Set(i,match)
 	log.Out.Printf(3,"Expect id: %d\n", i)
-	return ExpectChan{i, c}, nil
+	return eChan, nil
 }
 
 func UnExpect(irc Expectable, e ExpectChan) {
@@ -154,35 +161,6 @@ func matchCommand(com Command, mat CommandMatcher) bool {
 		}
 	}
 	return true
-}
-
-func compileCmdMatch(cr Command) (CommandMatcher, error) {
-	var match CommandMatcher
-	var err error
-	match.Params = make([]*regexp.Regexp, len(cr.Params))
-	if len(cr.Prefix) == 0 {
-		match.Prefix = regexp.MustCompilePOSIX(`.*`)
-	} else {
-		match.Prefix, err = regexp.CompilePOSIX(cr.Prefix)
-		if err != nil {
-			return CommandMatcher{}, err
-		}
-	}
-	if len(cr.Command) == 0 {
-		match.Command = regexp.MustCompilePOSIX(`.*`)
-	} else {
-		match.Command, err = regexp.CompilePOSIX(cr.Command)
-		if err != nil {
-			return CommandMatcher{}, err
-		}
-	}
-	for i, v := range cr.Params {
-		match.Params[i], err = regexp.CompilePOSIX(v)
-		if err != nil {
-			return CommandMatcher{}, err
-		}
-	}
-	return match, nil
 }
 
 func DefaultExpect(c Expectable) ExpectChan {

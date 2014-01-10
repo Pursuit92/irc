@@ -19,8 +19,6 @@
 
 package irc
 
-// BUG(josh) Need to replace the wonky chan map[] hack with real writelocks
-
 import (
 	"bufio"
 	"fmt"
@@ -89,7 +87,7 @@ func DialIRC(host string, nicks []string, name, realname string) (*Conn, error) 
 	return &ircConn, nil
 }
 
-func (c Conn) sendCommand(m Command) error {
+func (c Conn) Send(m Command) error {
 	msg := m.String()
 	log.Out.Printf(2,"Sending Command: %s", msg)
 	_, err := fmt.Fprintf(c.conn, "%s\r\n", msg)
@@ -101,98 +99,83 @@ func (c Conn) sendCommand(m Command) error {
 	}
 }
 
-func (c Conn) recvCommand(buffered *bufio.Reader) (*Command, error) {
-	var message string
+// receive a single command
+func (c Conn) recvCommand(buffered *bufio.Reader) (cmd *Command, err error) {
 	message, err := buffered.ReadString(0x0a)
-	//log.Printf("Received: %s",message)
-	if err != nil {
-		return nil, err
-	}
-	msg, err := parseCommand(message)
 	if err == nil {
-		//log.Printf("Received Command: %s",msg)
+		cmd, err = parseCommand(message)
 	}
-	return msg, err
+	return cmd, err
 }
 
-// Needs error handling
-func (c Conn) recvCommands() error {
+// Sends commands to the msgOut channel till an error is encountered
+func (c Conn) recvCommands() (err error) {
+	// This is the only thing that should be writing to the channel.
+	// Close it when we're done.
+	defer close(c.msgOut)
+
+	var cmd *Command
 	log.Out.Printf(2,"Starting message reciever")
 	buffered := bufio.NewReader(c.conn)
-	for {
-		msg, err := c.recvCommand(buffered)
-		if err != nil {
-			return err
-		} else {
-			c.msgOut <- *msg
-		}
+	cmd, err = c.recvCommand(buffered)
+	for err == nil {
+		c.msgOut <- *cmd
+		cmd, err = c.recvCommand(buffered)
 	}
+	return err
 }
 
-func (c Conn) Send(m Command) error {
-	err := c.sendCommand(m)
-	if err != nil {
-		return err
-	}
-	return nil
-}
-
+// Watches for Pings and responds with Pongs. Pretty simple.
 func (c Conn) pongsGalore() {
 	pong := Command{Prefix: "", Command: Pong}
 	pings, _ := Expect(c, Command{Command: Ping})
 	for ping := range pings.Chan {
 		pong.Params = []string{ping.Params[0]}
-		c.sendCommand(pong)
+		c.Send(pong)
 	}
 }
 
-func (c *Conn) Register() (Command, error) {
+// Registers your Nick on the IRC server. Iterates through the slice of nicks in
+// (c *Conn) and returns an error if all result in an error
+func (c *Conn) Register() (cmd Command, err error) {
+	// Default error
+	err = IRCErr("All Nicks in use!")
 	log.Out.Printf(2,"Attempting to register nick")
 	userMsg := Command{Command: User,
 		Params: []string{c.Name, "0", "*", c.RealName}}
+
+	// Set up all of the expectations for the messages in the exchange
 	welcomeChan, _ := Expect(c, Command{Command: RplWelcome})
 	errChan, _ := Expect(c, Command{Command: ErrNicknameinuse})
 	defer UnExpect(c, welcomeChan)
 	defer UnExpect(c, errChan)
 
-	c.sendCommand(userMsg)
-
-	var err error = nil
-
-	var success bool = false
+	c.Send(userMsg)
 
 	nickMsg := Command{Command: Nick}
 
-	var ret Command
 	for _, v := range c.Nicks {
 		nickMsg.Params = []string{v}
-		c.sendCommand(nickMsg)
+		c.Send(nickMsg)
 		log.Out.Printf(2,"Waiting for response...")
 		select {
-		case resp := <-welcomeChan.Chan:
-			log.Out.Printf(2,"Received welcome message: %s", resp.String())
-			//println(resp.String())
-			ret = resp
-			success = true
+		case cmd := <-welcomeChan.Chan:
+			log.Out.Printf(2,"Received welcome message: %s", cmd.String())
+			log.Out.Printf(2,"Done registering")
+			c.Nick = v
+			err = nil
+			break
 		case errmsg := <-errChan.Chan:
 			log.Out.Printf(2,"Received error message: %s", errmsg.String())
 		}
-		if success {
-			log.Out.Printf(2,"Done registering")
-			c.Nick = v
-			// Don't really need pings
-			// go c.pingsGalore()
-			break
-		}
 	}
-	if !success {
-		err = IRCErr("All Nicks in use!")
-	}
-	return ret, err
+
+	return cmd, err
 }
 
+// Sends the Quit message to the IRC server and closes the connection
 func (c Conn) Quit() {
 	msg := Command{Command: Quit, Params: []string{"Leaving"}}
-	c.sendCommand(msg)
+	c.Send(msg)
 	c.conn.Close()
 }
