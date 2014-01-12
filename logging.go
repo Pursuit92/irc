@@ -21,8 +21,17 @@ package irc
 
 import (
 	"github.com/Pursuit92/LeveledLogger/log"
+	"io"
 )
 
 func SetLogLevel(n int) {
 	log.Out.SetLevel(n)
+}
+
+func SetOut(wr io.Writer) {
+	log.Out.SetOutput(wr)
+}
+
+func SetErr(wr io.Writer) {
+	log.Err.SetOutput(wr)
 }
