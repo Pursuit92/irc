@@ -68,38 +68,46 @@ func MakeExpector(msgs chan Command) Expector {
 	return Expector{msgs, eMap}
 }
 
+func CompileMatcher(cmdRE Command) (match CommandMatcher, err error) {
+	match.Params = make([]*regexp.Regexp, len(cmdRE.Params))
+	if len(cmdRE.Prefix) == 0 {
+		match.Prefix = regexp.MustCompile(`.*`)
+	} else {
+		match.Prefix, err = regexp.Compile(cmdRE.Prefix)
+		if err != nil {
+			return match, err
+		}
+	}
+	if len(cmdRE.Command) == 0 {
+		match.Command = regexp.MustCompile(`.*`)
+	} else {
+		match.Command, err = regexp.Compile(cmdRE.Command)
+		if err != nil {
+			return match, err
+		}
+	}
+	for i, v := range cmdRE.Params {
+		if len(v) == 0 {
+			match.Params[i] = regexp.MustCompile(`.*`)
+		} else {
+			match.Params[i], err = regexp.Compile(v)
+			if err != nil {
+				return match, err
+			}
+		}
+	}
+	return match, err
+}
+
 // Register a channel to receive messages matching a specific pattern
 func Expect(irc Expectable, cr Command) (eChan ExpectChan, err error) {
 	log.Out.Printf(3,"Registering Expect for %s\n", cr.String())
 	var exists bool
 	var i int
 	var match Expectation
-	match.Params = make([]*regexp.Regexp, len(cr.Params))
-	if len(cr.Prefix) == 0 {
-		match.Prefix = regexp.MustCompile(`.*`)
-	} else {
-		match.Prefix, err = regexp.Compile(cr.Prefix)
-		if err != nil {
-			return eChan, err
-		}
-	}
-	if len(cr.Command) == 0 {
-		match.Command = regexp.MustCompile(`.*`)
-	} else {
-		match.Command, err = regexp.Compile(cr.Command)
-		if err != nil {
-			return eChan, err
-		}
-	}
-	for i, v := range cr.Params {
-		if len(v) == 0 {
-			match.Params[i] = regexp.MustCompile(`.*`)
-		} else {
-			match.Params[i], err = regexp.Compile(v)
-			if err != nil {
-				return eChan, err
-			}
-		}
+	match.CommandMatcher, err = CompileMatcher(cr)
+	if err != nil {
+		return eChan, err
 	}
 	eMap := irc.Expects()
 	exists = true
