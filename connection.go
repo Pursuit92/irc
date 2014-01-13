@@ -23,7 +23,6 @@ import (
 	"bufio"
 	"fmt"
 	"github.com/Pursuit92/LeveledLogger/log"
-	"github.com/Pursuit92/syncmap"
 	"math/rand"
 	"net"
 	"time"
@@ -42,18 +41,10 @@ type Conn struct {
 	Name     string
 	RealName string
 	//PingInterval int
-	msgOut  chan Command
 	conn    net.Conn
-	expects syncmap.Map
+	Expector
 }
 
-func (c Conn) Expects() syncmap.Map {
-	return c.expects
-}
-
-func (c Conn) MsgOut() chan Command {
-	return c.msgOut
-}
 
 type IRCErr string
 
@@ -68,7 +59,6 @@ func DialIRC(host string, nicks []string, name, realname string) (*Conn, error) 
 		Nick: "",
 		Name: name,
 		RealName: realname,
-		expects: syncmap.New(),
 	}
 	log.Out.Printf(2,"Connecting to %s...", host)
 	conn, err := net.Dial("tcp", host)
@@ -78,10 +68,12 @@ func DialIRC(host string, nicks []string, name, realname string) (*Conn, error) 
 	ircConn.conn = conn
 	log.Out.Printf(2,"Connected! Performing setup...")
 
-	ircConn.msgOut = make(chan Command, 16)
+	msgOut := make(chan CmdErr, 16)
 
-	go ircConn.recvCommands()
-	go handleExpects(ircConn)
+	go recvCommands(ircConn.conn,msgOut)
+
+	ircConn.Expector = MakeExpector(msgOut)
+
 	go ircConn.pongsGalore()
 
 	return &ircConn, nil
@@ -100,7 +92,7 @@ func (c Conn) Send(m Command) error {
 }
 
 // receive a single command
-func (c Conn) recvCommand(buffered *bufio.Reader) (cmd *Command, err error) {
+func recvCommand(buffered *bufio.Reader) (cmd *Command, err error) {
 	message, err := buffered.ReadString(0x0a)
 	if err == nil {
 		cmd, err = parseCommand(message)
@@ -109,18 +101,17 @@ func (c Conn) recvCommand(buffered *bufio.Reader) (cmd *Command, err error) {
 }
 
 // Sends commands to the msgOut channel till an error is encountered
-func (c Conn) recvCommands() (err error) {
+func recvCommands(read net.Conn, msgOut chan CmdErr) (err error) {
 	// This is the only thing that should be writing to the channel.
 	// Close it when we're done.
-	defer close(c.msgOut)
+	defer close(msgOut)
 
 	var cmd *Command
 	log.Out.Printf(2,"Starting message reciever")
-	buffered := bufio.NewReader(c.conn)
-	cmd, err = c.recvCommand(buffered)
+	buffered := bufio.NewReader(read)
 	for err == nil {
-		c.msgOut <- *cmd
-		cmd, err = c.recvCommand(buffered)
+		cmd, err = recvCommand(buffered)
+		msgOut <- CmdErr{*cmd,err}
 	}
 	return err
 }
@@ -128,10 +119,13 @@ func (c Conn) recvCommands() (err error) {
 // Watches for Pings and responds with Pongs. Pretty simple.
 func (c Conn) pongsGalore() {
 	pong := Command{Prefix: "", Command: Pong}
-	pings, _ := Expect(c, Command{Command: Ping})
+	pings, _ := c.Expect(Command{Command: Ping})
+	defer c.UnExpect(pings)
 	for ping := range pings.Chan {
-		pong.Params = []string{ping.Params[0]}
-		c.Send(pong)
+		if ping.Err == nil {
+			pong.Params = []string{ping.Cmd.Params[0]}
+			c.Send(pong)
+		}
 	}
 }
 
@@ -145,12 +139,15 @@ func (c *Conn) Register() (cmd Command, err error) {
 		Params: []string{c.Name, "0", "*", c.RealName}}
 
 	// Set up all of the expectations for the messages in the exchange
-	welcomeChan, _ := Expect(c, Command{Command: RplWelcome})
-	errChan, _ := Expect(c, Command{Command: ErrNicknameinuse})
-	defer UnExpect(c, welcomeChan)
-	defer UnExpect(c, errChan)
+	welcomeChan, _ := c.Expect(Command{Command: RplWelcome})
+	errChan, _ := c.Expect(Command{Command: ErrNicknameinuse})
+	defer c.UnExpect(welcomeChan)
+	defer c.UnExpect(errChan)
 
-	c.Send(userMsg)
+	err = c.Send(userMsg)
+	if err != nil {
+		return cmd, err
+	}
 
 	nickMsg := Command{Command: Nick}
 
@@ -160,13 +157,21 @@ func (c *Conn) Register() (cmd Command, err error) {
 		log.Out.Printf(2,"Waiting for response...")
 		select {
 		case cmd := <-welcomeChan.Chan:
-			log.Out.Printf(2,"Received welcome message: %s", cmd.String())
+			if cmd.Err != nil {
+				err = cmd.Err
+				break
+			}
+			log.Out.Printf(2,"Received welcome message: %s", cmd.Cmd.String())
 			log.Out.Printf(2,"Done registering")
 			c.Nick = v
 			err = nil
 			break
 		case errmsg := <-errChan.Chan:
-			log.Out.Printf(2,"Received error message: %s", errmsg.String())
+			if errmsg.Err != nil {
+				err = errmsg.Err
+				break
+			}
+			log.Out.Printf(2,"Received error message: %s", errmsg.Cmd.String())
 		}
 	}
 

@@ -31,6 +31,11 @@ type Command struct {
 	Params  []string
 }
 
+type CmdErr struct {
+	Cmd Command
+	Err error
+}
+
 type Message struct {
 	Nick string
 	User string

@@ -33,7 +33,7 @@ type CommandMatcher struct {
 
 type ExpectChan struct {
 	id   int
-	Chan chan Command
+	Chan chan CmdErr
 }
 
 type Expectation struct {
@@ -41,29 +41,18 @@ type Expectation struct {
 	ExpectChan
 }
 
-type Expectable interface {
-	// Map of ints to Expectations
-	Expects() syncmap.Map
-	MsgOut() chan Command
-}
-
 type Expector struct {
-	msgs    chan Command
+	msgs    chan CmdErr
 	// Map of ints to Expectations
 	expects syncmap.Map
 }
 
-func (e Expector) Expects() syncmap.Map {
-	return e.expects
-}
-func (e Expector) MsgOut() chan Command {
-	return e.msgs
-}
-
 // Turns a channel into an Expector
-func MakeExpector(msgs chan Command) Expector {
+func MakeExpector(msgs chan CmdErr) Expector {
 	eMap := syncmap.New()
-	return Expector{msgs, eMap}
+	exp := Expector{msgs, eMap}
+	go exp.handleExpects()
+	return exp
 }
 
 func CompileMatcher(cmdRE Command) (match CommandMatcher, err error) {
@@ -98,7 +87,7 @@ func CompileMatcher(cmdRE Command) (match CommandMatcher, err error) {
 }
 
 // Register a channel to receive messages matching a specific pattern
-func Expect(irc Expectable, cr Command) (eChan ExpectChan, err error) {
+func (exp Expector) Expect(cr Command) (eChan ExpectChan, err error) {
 	log.Out.Printf(3,"Registering Expect for %s\n", cr.String())
 	var exists bool
 	var i int
@@ -107,13 +96,13 @@ func Expect(irc Expectable, cr Command) (eChan ExpectChan, err error) {
 	if err != nil {
 		return eChan, err
 	}
-	eMap := irc.Expects()
+	eMap := exp.expects
 	exists = true
 	for exists {
 		i = rgen.Intn(65534)
 		_, exists = eMap.Get(i)
 	}
-	c := make(chan Command)
+	c := make(chan CmdErr)
 	eChan.Chan = c
 	eChan.id = i
 	match.ExpectChan = eChan
@@ -122,33 +111,31 @@ func Expect(irc Expectable, cr Command) (eChan ExpectChan, err error) {
 	return eChan, nil
 }
 
-func UnExpect(irc Expectable, e ExpectChan) {
+func (exp Expector) UnExpect(e ExpectChan) {
 	log.Out.Printf(3,"Removing expect with id %d", e.id)
-	eMap := irc.Expects()
+	eMap := exp.expects
+	close(e.Chan)
 	eMap.Delete(e.id)
 }
 
-func handleExpects(c Expectable) {
+func (c Expector) handleExpects() {
 	log.Out.Printf(3,"Starting Expect handler")
-	msgOut := c.MsgOut()
-	eMap := c.Expects()
+	msgOut := c.msgs
+	eMap := c.expects
 	for msg := range msgOut {
-		sent := false
 		//println("expect handler got message")
 		//log.Out.Printf("Testing message: %s",msg.String())
 		for _, v := range eMap.Map() {
 			w := v.(Expectation)
-			if matchCommand(msg, w.CommandMatcher) {
-				log.Out.Printf(3,"Sending message to Expect channel with id %d: %s", w.id, msg.String())
+			if msg.Err != nil {
 				w.Chan <- msg
-				sent = true
+				close(w.Chan)
+				continue
 			}
-		}
-		def, ok := eMap.Get(65535)
-		if ok && !sent {
-			d := def.(Expectation)
-			log.Out.Print(3,"Sending message to default channel")
-			d.Chan <- msg
+			if matchCommand(msg.Cmd, w.CommandMatcher) {
+				log.Out.Printf(3,"Sending message to Expect channel with id %d: %s", w.id, msg.Cmd.String())
+				w.Chan <- msg
+			}
 		}
 	}
 }
@@ -171,12 +158,14 @@ func matchCommand(com Command, mat CommandMatcher) bool {
 	return true
 }
 
-func DefaultExpect(c Expectable) ExpectChan {
+func (c Expector) DefaultExpect() ExpectChan {
 	var match Expectation
 
-	eMap := c.Expects()
+	match.CommandMatcher, _ = CompileMatcher(Command{})
+
+	eMap := c.expects
 	i := 65535
-	ch := make(chan Command)
+	ch := make(chan CmdErr)
 	match.Chan = ch
 	match.id = i
 	eMap.Set(i,match)

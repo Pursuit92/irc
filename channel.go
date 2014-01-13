@@ -35,11 +35,10 @@ func (c *Conn) Join(channel string) (chanstruct *Channel, err error) {
 	joinCmd := Command{Command: Join, Prefix: c.Nick, Params: []string{channel}}
 	err = c.Send(joinCmd)
 	if err == nil {
-		msgs, _ := Expect(c, Command{"", "", []string{channel}})
+		msgs, _ := c.Expect(Command{"", "", []string{channel}})
 		chanstruct = &Channel{channel, c, MakeExpector(msgs.Chan)}
-		join, _ := Expect(chanstruct, Command{"", "JOIN", []string{}})
-		defer UnExpect(chanstruct, join)
-		go handleExpects(chanstruct)
+		join, _ := chanstruct.Expect(Command{"", "JOIN", []string{}})
+		defer chanstruct.UnExpect(join)
 		<-join.Chan
 	}
 	return chanstruct, err
@@ -65,26 +64,27 @@ func parseWhoReply(cmd Command) IRCUser {
 	return user
 }
 
-func (c Channel) GetUsers() map[string]IRCUser {
+func (c Channel) GetUsers() (map[string]IRCUser,error) {
 	users := make(map[string]IRCUser)
-	userMsgs, _ := Expect(c.conn, Command{"", RplWhoreply, []string{}})
-	userEnd, _ := Expect(c.conn, Command{"", RplEndofwho, []string{}})
-	defer UnExpect(c.conn, userMsgs)
-	defer UnExpect(c.conn, userEnd)
+	userMsgs, _ := c.conn.Expect(Command{"", RplWhoreply, []string{}})
+	userEnd, _ := c.conn.Expect(Command{"", RplEndofwho, []string{}})
+	defer c.conn.UnExpect(userMsgs)
+	defer c.conn.UnExpect(userEnd)
 	whoCmd := Command{Command: Who, Params: []string{c.Name}}
 	c.conn.Send(whoCmd)
 	// BUG(Josh) What if stuff happens before the userEnd Chan talks?
 	for {
 		select {
 		case msg := <-userMsgs.Chan:
-			user := parseWhoReply(msg)
+			if msg.Err != nil {
+				return nil, msg.Err
+			}
+			user := parseWhoReply(msg.Cmd)
 			if user.Nick != "" {
 				users[user.Nick] = user
 			}
 		case <-userEnd.Chan:
-			UnExpect(c.conn,userMsgs)
-			UnExpect(c.conn,userEnd)
-			return users
+			return users,nil
 		}
 	}
 }
