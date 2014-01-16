@@ -32,7 +32,7 @@ type Command struct {
 }
 
 type CmdErr struct {
-	Cmd Command
+	Cmd *Command
 	Err error
 }
 
@@ -103,9 +103,9 @@ func (m Command) String() string {
 		prefix = ":" + m.Prefix + " "
 	}
 
-	//log.Print("Params:")
+	//log.Lprint("Params:")
 	for i, v := range m.Params {
-		//log.Printf("\t\t%s",v)
+		//log.Lprintf("\t\t%s",v)
 		if i == len(m.Params)-1 {
 			body += ":" + v
 		} else {

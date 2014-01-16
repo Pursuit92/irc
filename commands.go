@@ -55,7 +55,7 @@ const (
 	Kill     string = "KILL"
 	Ping     string = "PING"
 	Pong     string = "PONG"
-	Error    string = "ERROR"
+	Err      string = "ERROR"
 	Away     string = "AWAY"
 	Die      string = "DIE"
 	Restart  string = "RESTART"

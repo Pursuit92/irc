@@ -49,7 +49,7 @@ func (c Channel) Write(b []byte) (int, error) {
 	return fmt.Fprintf(c.conn.conn, "%s\r\n", cmd.String())
 }
 
-func parseWhoReply(cmd Command) IRCUser {
+func parseWhoReply(cmd *Command) IRCUser {
 	if cmd.Command != RplWhoreply {
 		return IRCUser{}
 	}

@@ -74,3 +74,16 @@ const (
 	ErrUmodeunknownflag  string = "501"
 	ErrUsersdontmatch    string = "502"
 )
+
+type Error string
+
+func (e Error) Error() string {
+	return string(e)
+}
+
+const (
+	UserTaken = Error("Username already taken.")
+	InvalidPass = Error("Invalid password.")
+	Timeout = Error("Connect timeout.")
+	Disconnect = Error("Remote disconnected.")
+)

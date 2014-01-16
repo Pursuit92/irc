@@ -46,12 +46,6 @@ type Conn struct {
 }
 
 
-type IRCErr string
-
-func (i IRCErr) Error() string {
-	return string(i)
-}
-
 func DialIRC(host string, nicks []string, name, realname string) (*Conn, error) {
 	ircConn := Conn{
 		Host: host,
@@ -60,13 +54,13 @@ func DialIRC(host string, nicks []string, name, realname string) (*Conn, error) 
 		Name: name,
 		RealName: realname,
 	}
-	log.Out.Printf(2,"Connecting to %s...", host)
+	log.Out.Lprintf(2,"Connecting to %s...", host)
 	conn, err := net.Dial("tcp", host)
 	if err != nil {
 		return nil, err
 	}
 	ircConn.conn = conn
-	log.Out.Printf(2,"Connected! Performing setup...")
+	log.Out.Lprintf(2,"Connected! Performing setup...")
 
 	msgOut := make(chan CmdErr, 16)
 
@@ -81,7 +75,7 @@ func DialIRC(host string, nicks []string, name, realname string) (*Conn, error) 
 
 func (c Conn) Send(m Command) error {
 	msg := m.String()
-	log.Out.Printf(2,"Sending Command: %s", msg)
+	log.Out.Lprintf(2,"Sending Command: %s", msg)
 	_, err := fmt.Fprintf(c.conn, "%s\r\n", msg)
 
 	if err == nil {
@@ -107,11 +101,11 @@ func recvCommands(read net.Conn, msgOut chan CmdErr) (err error) {
 	defer close(msgOut)
 
 	var cmd *Command
-	log.Out.Printf(2,"Starting message reciever")
+	log.Out.Lprintf(2,"Starting message reciever")
 	buffered := bufio.NewReader(read)
 	for err == nil {
 		cmd, err = recvCommand(buffered)
-		msgOut <- CmdErr{*cmd,err}
+		msgOut <- CmdErr{cmd,err}
 	}
 	return err
 }
@@ -133,8 +127,8 @@ func (c Conn) pongsGalore() {
 // (c *Conn) and returns an error if all result in an error
 func (c *Conn) Register() (cmd Command, err error) {
 	// Default error
-	err = IRCErr("All Nicks in use!")
-	log.Out.Printf(2,"Attempting to register nick")
+	err = UserTaken
+	log.Out.Lprintf(2,"Attempting to register nick")
 	userMsg := Command{Command: User,
 		Params: []string{c.Name, "0", "*", c.RealName}}
 
@@ -144,9 +138,9 @@ func (c *Conn) Register() (cmd Command, err error) {
 	defer c.UnExpect(welcomeChan)
 	defer c.UnExpect(errChan)
 
-	err = c.Send(userMsg)
-	if err != nil {
-		return cmd, err
+	sendErr := c.Send(userMsg)
+	if sendErr != nil {
+		return cmd, sendErr
 	}
 
 	nickMsg := Command{Command: Nick}
@@ -154,15 +148,15 @@ func (c *Conn) Register() (cmd Command, err error) {
 	for _, v := range c.Nicks {
 		nickMsg.Params = []string{v}
 		c.Send(nickMsg)
-		log.Out.Printf(2,"Waiting for response...")
+		log.Out.Lprintf(2,"Waiting for response...")
 		select {
 		case cmd := <-welcomeChan.Chan:
 			if cmd.Err != nil {
 				err = cmd.Err
 				break
 			}
-			log.Out.Printf(2,"Received welcome message: %s", cmd.Cmd.String())
-			log.Out.Printf(2,"Done registering")
+			log.Out.Lprintf(2,"Received welcome message: %s", cmd.Cmd.String())
+			log.Out.Lprintf(2,"Done registering")
 			c.Nick = v
 			err = nil
 			break
@@ -171,7 +165,7 @@ func (c *Conn) Register() (cmd Command, err error) {
 				err = errmsg.Err
 				break
 			}
-			log.Out.Printf(2,"Received error message: %s", errmsg.Cmd.String())
+			log.Out.Lprintf(2,"Received error message: %s", errmsg.Cmd.String())
 		}
 	}
 
