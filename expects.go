@@ -20,9 +20,8 @@
 package irc
 
 import (
-	"github.com/Pursuit92/LeveledLogger/log"
-	"github.com/Pursuit92/syncmap"
 	"regexp"
+	"github.com/Pursuit92/pubsub"
 )
 
 // CommandMatcher mirrors the structure of a Command, but with regular expressions
@@ -31,50 +30,27 @@ type CommandMatcher struct {
 	Params          []*regexp.Regexp
 }
 
-type ExpectChan struct {
-	id   int
-	Chan <-chan CmdErr
-	send chan<- CmdErr
-}
-
-type Expectation struct {
-	CommandMatcher
-	ExpectChan
-}
-
-type Expector struct {
-	msgs    <-chan CmdErr
-	// Map of ints to Expectations
-	expects syncmap.Map
-}
-
-// Turns a channel into an Expector
-func MakeExpector(msgs <-chan CmdErr) Expector {
-	eMap := syncmap.New()
-	exp := Expector{msgs, eMap}
-	go exp.handleExpects()
-	return exp
-}
-
-func CompileMatcher(cmdRE Command) (match CommandMatcher, err error) {
-	match.Params = make([]*regexp.Regexp, len(cmdRE.Params))
-	if len(cmdRE.Prefix) == 0 {
+func (cmd Command) MakeMatcher() (pubsub.Matcher,error) {
+	var err error
+	match := CommandMatcher{}
+	match.Params = make([]*regexp.Regexp, len(cmd.Params))
+	if len(cmd.Prefix) == 0 {
 		match.Prefix = regexp.MustCompile(`.*`)
 	} else {
-		match.Prefix, err = regexp.Compile(cmdRE.Prefix)
+		match.Prefix, err = regexp.Compile(cmd.Prefix)
 		if err != nil {
 			return match, err
 		}
 	}
-	if len(cmdRE.Command) == 0 {
+	if len(cmd.Command) == 0 {
 		match.Command = regexp.MustCompile(`.*`)
 	} else {
-		match.Command, err = regexp.Compile(cmdRE.Command)
+		match.Command, err = regexp.Compile(cmd.Command)
 		if err != nil {
 			return match, err
 		}
 	}
-	for i, v := range cmdRE.Params {
+	for i, v := range cmd.Params {
 		if len(v) == 0 {
 			match.Params[i] = regexp.MustCompile(`.*`)
 		} else {
@@ -87,93 +63,44 @@ func CompileMatcher(cmdRE Command) (match CommandMatcher, err error) {
 	return match, err
 }
 
-// Register a channel to receive messages matching a specific pattern
-func (exp Expector) Expect(cr Command) (eChan ExpectChan, err error) {
-	log.Out.Lprintf(3,"Registering Expect for %s\n", cr.String())
-	var exists bool
-	var i int
-	var match Expectation
-	match.CommandMatcher, err = CompileMatcher(cr)
-	if err != nil {
-		return eChan, err
-	}
-	eMap := exp.expects
-	exists = true
-	for exists {
-		i = rgen.Intn(65534)
-		_, exists = eMap.Get(i)
-	}
-	c := make(chan CmdErr)
-	eChan.Chan = c
-	eChan.send = c
-	eChan.id = i
-	match.ExpectChan = eChan
-	eMap.Set(i,match)
-	log.Out.Lprintf(3,"Expect id: %d\n", i)
-	return eChan, nil
+func (ce CmdErr) MakeMatcher() (pubsub.Matcher, error) {
+	m, e := ce.Cmd.MakeMatcher()
+	return m,e
 }
 
-func (exp Expector) UnExpect(e ExpectChan) {
-	eMap := exp.expects
-	_, exists := eMap.Get(e.id)
-	if exists {
-		log.Out.Lprintf(3,"Removing expect with id %d", e.id)
-		close(e.send)
-		eMap.Delete(e.id)
-	}
-}
-
-func (c Expector) handleExpects() {
-	log.Out.Lprintf(3,"Starting Expect handler")
-	msgOut := c.msgs
-	eMap := c.expects
-	for msg := range msgOut {
-		//println("expect handler got message")
-		//log.Out.Lprintf("Testing message: %s",msg.String())
-		for _, v := range eMap.Map() {
-			w := v.(Expectation)
-			if msg.Err != nil {
-				w.send <- msg
-				c.UnExpect(w.ExpectChan)
-				continue
-			}
-			if matchCommand(msg.Cmd, w.CommandMatcher) {
-				log.Out.Lprintf(3,"Sending message to Expect channel with id %d: %s", w.id, msg.Cmd.String())
-				w.send <- msg
-			}
+func (mat CommandMatcher) Match(check pubsub.Matchable) bool {
+	var com *Command
+	var c,ce bool
+	cmderr, ce := check.(CmdErr)
+	if ce {
+		if cmderr.Err != nil {
+			return true
+		}
+		com = cmderr.Cmd
+	println("com is",com)
+	} else {
+		cmd, c := check.(Command)
+		if c {
+			com = &cmd
+	println("com is",com)
 		}
 	}
-}
-
-func matchCommand(com *Command, mat CommandMatcher) bool {
-	if len(com.Params) < len(mat.Params) {
-		return false
-	}
-	if mat.Prefix.MatchString(com.Prefix) == false {
-		return false
-	}
-	if mat.Command.MatchString(com.Command) == false {
-		return false
-	}
-	for i, v := range mat.Params {
-		if v.MatchString(com.Params[i]) == false {
+	if c || ce {
+		if len(com.Params) < len(mat.Params) {
 			return false
 		}
+		if mat.Prefix.MatchString(com.Prefix) == false {
+			return false
+		}
+		if mat.Command.MatchString(com.Command) == false {
+			return false
+		}
+		for i, v := range mat.Params {
+			if v.MatchString(com.Params[i]) == false {
+				return false
+			}
+		}
+		return true
 	}
-	return true
-}
-
-func (c Expector) DefaultExpect() ExpectChan {
-	var match Expectation
-
-	match.CommandMatcher, _ = CompileMatcher(Command{})
-
-	eMap := c.expects
-	i := 65535
-	ch := make(chan CmdErr)
-	match.Chan = ch
-	match.send = ch
-	match.id = i
-	eMap.Set(i,match)
-	return match.ExpectChan
+	return false
 }

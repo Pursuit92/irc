@@ -23,22 +23,23 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"github.com/Pursuit92/pubsub"
 )
 
 type Channel struct {
 	Name string
 	conn *Conn
-	Expector
+	pubsub.Publisher
 }
 
 func (c *Conn) Join(channel string) (chanstruct *Channel, err error) {
 	joinCmd := Command{Command: Join, Prefix: c.Nick, Params: []string{channel}}
 	err = c.Send(joinCmd)
 	if err == nil {
-		msgs, _ := c.Expect(Command{"", "", []string{channel}})
-		chanstruct = &Channel{channel, c, MakeExpector(msgs.Chan)}
-		join, _ := chanstruct.Expect(Command{"", "JOIN", []string{}})
-		defer chanstruct.UnExpect(join)
+		msgs, _ := c.Subscribe(Command{"", "", []string{channel}})
+		chanstruct = &Channel{channel, c, pubsub.MakePublisher(msgs.Chan)}
+		join, _ := chanstruct.Subscribe(Command{"", "JOIN", []string{}})
+		defer chanstruct.UnSubscribe(join)
 		<-join.Chan
 	}
 	return chanstruct, err
@@ -66,16 +67,17 @@ func parseWhoReply(cmd *Command) IRCUser {
 
 func (c Channel) GetUsers() (map[string]IRCUser,error) {
 	users := make(map[string]IRCUser)
-	userMsgs, _ := c.conn.Expect(Command{"", RplWhoreply, []string{}})
-	userEnd, _ := c.conn.Expect(Command{"", RplEndofwho, []string{}})
-	defer c.conn.UnExpect(userMsgs)
-	defer c.conn.UnExpect(userEnd)
+	userMsgs, _ := c.conn.Subscribe(Command{"", RplWhoreply, []string{}})
+	userEnd, _ := c.conn.Subscribe(Command{"", RplEndofwho, []string{}})
+	defer c.conn.UnSubscribe(userMsgs)
+	defer c.conn.UnSubscribe(userEnd)
 	whoCmd := Command{Command: Who, Params: []string{c.Name}}
 	c.conn.Send(whoCmd)
 	// BUG(Josh) What if stuff happens before the userEnd Chan talks?
 	for {
 		select {
-		case msg := <-userMsgs.Chan:
+		case match := <-userMsgs.Chan:
+			msg := match.(CmdErr)
 			if msg.Err != nil {
 				return nil, msg.Err
 			}

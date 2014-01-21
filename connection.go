@@ -26,6 +26,7 @@ import (
 	"math/rand"
 	"net"
 	"time"
+	"github.com/Pursuit92/pubsub"
 )
 
 var rgen *rand.Rand
@@ -42,7 +43,7 @@ type Conn struct {
 	RealName string
 	//PingInterval int
 	conn    net.Conn
-	Expector
+	pubsub.Publisher
 }
 
 
@@ -62,11 +63,11 @@ func DialIRC(host string, nicks []string, name, realname string) (*Conn, error) 
 	ircConn.conn = conn
 	log.Out.Lprintf(2,"Connected! Performing setup...")
 
-	msgOut := make(chan CmdErr, 16)
+	msgOut := make(chan pubsub.Matchable, 16)
 
 	go recvCommands(ircConn.conn,msgOut)
 
-	ircConn.Expector = MakeExpector(msgOut)
+	ircConn.Publisher = pubsub.MakePublisher(msgOut)
 
 	go ircConn.pongsGalore()
 
@@ -95,7 +96,7 @@ func recvCommand(buffered *bufio.Reader) (cmd *Command, err error) {
 }
 
 // Sends commands to the msgOut channel till an error is encountered
-func recvCommands(read net.Conn, msgOut chan CmdErr) (err error) {
+func recvCommands(read net.Conn, msgOut chan pubsub.Matchable) (err error) {
 	// This is the only thing that should be writing to the channel.
 	// Close it when we're done.
 	defer close(msgOut)
@@ -113,9 +114,10 @@ func recvCommands(read net.Conn, msgOut chan CmdErr) (err error) {
 // Watches for Pings and responds with Pongs. Pretty simple.
 func (c Conn) pongsGalore() {
 	pong := Command{Prefix: "", Command: Pong}
-	pings, _ := c.Expect(Command{Command: Ping})
-	defer c.UnExpect(pings)
-	for ping := range pings.Chan {
+	pings, _ := c.Subscribe(Command{Command: Ping})
+	defer c.UnSubscribe(pings)
+	for match := range pings.Chan {
+		ping := match.(CmdErr)
 		if ping.Err == nil {
 			pong.Params = []string{ping.Cmd.Params[0]}
 			c.Send(pong)
@@ -133,10 +135,10 @@ func (c *Conn) Register() (cmd Command, err error) {
 		Params: []string{c.Name, "0", "*", c.RealName}}
 
 	// Set up all of the expectations for the messages in the exchange
-	welcomeChan, _ := c.Expect(Command{Command: RplWelcome})
-	errChan, _ := c.Expect(Command{Command: ErrNicknameinuse})
-	defer c.UnExpect(welcomeChan)
-	defer c.UnExpect(errChan)
+	welcomeChan, _ := c.Subscribe(Command{Command: RplWelcome})
+	errChan, _ := c.Subscribe(Command{Command: ErrNicknameinuse})
+	defer c.UnSubscribe(welcomeChan)
+	defer c.UnSubscribe(errChan)
 
 	sendErr := c.Send(userMsg)
 	if sendErr != nil {
@@ -150,7 +152,8 @@ func (c *Conn) Register() (cmd Command, err error) {
 		c.Send(nickMsg)
 		log.Out.Lprintf(2,"Waiting for response...")
 		select {
-		case cmd := <-welcomeChan.Chan:
+		case match := <-welcomeChan.Chan:
+			cmd := match.(CmdErr)
 			if cmd.Err != nil {
 				err = cmd.Err
 				break
@@ -160,7 +163,8 @@ func (c *Conn) Register() (cmd Command, err error) {
 			c.Nick = v
 			err = nil
 			break
-		case errmsg := <-errChan.Chan:
+		case match := <-errChan.Chan:
+			errmsg := match.(CmdErr)
 			if errmsg.Err != nil {
 				err = errmsg.Err
 				break
