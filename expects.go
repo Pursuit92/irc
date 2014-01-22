@@ -77,12 +77,10 @@ func (mat CommandMatcher) Match(check pubsub.Matchable) bool {
 			return true
 		}
 		com = cmderr.Cmd
-	println("com is",com)
 	} else {
 		cmd, c := check.(Command)
 		if c {
 			com = &cmd
-	println("com is",com)
 		}
 	}
 	if c || ce {
